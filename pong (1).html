@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Pong — Single File</title>
+<style>
+  html,body { height:100%; margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;}
+  #container { display:flex; align-items:center; justify-content:center; height:100vh; background: linear-gradient(180deg,#071029,#0b2a44); }
+  canvas { background:#001219; border:6px solid rgba(255,255,255,0.06); box-shadow: 0 8px 30px rgba(0,0,0,0.6); }
+  .ui { position: absolute; top:18px; left:18px; color:#cfe7ff; user-select:none; }
+  .ui small { display:block; opacity:.7; margin-top:6px; }
+  .center-info { position:absolute; top:18px; width:100%; text-align:center; color:#cfe7ff; pointer-events:none }
+  .hint { font-size:13px; opacity:.8 }
+  #controls { position:absolute; right:18px; top:18px; color:#cfe7ff; text-align:right; }
+  button { margin-left:8px; background:#0f3450; color:#cfe7ff; border:1px solid rgba(255,255,255,0.06); padding:6px 10px; border-radius:6px; cursor:pointer; }
+  button:active{transform:translateY(1px)}
+  footer { position:absolute; bottom:14px; width:100%; text-align:center; color:rgba(207,231,255,.6); font-size:12px; }
+</style>
+</head>
+<body>
+<div id="container">
+  <canvas id="game" width="900" height="600"></canvas>
+
+  <div class="ui" id="leftUI">
+    <div id="scoreLeft" style="font-size:28px">0</div>
+    <small class="hint">W / S</small>
+  </div>
+
+  <div class="center-info">
+    <div id="title" style="font-weight:700; font-size:18px">PONG</div>
+    <div id="status" style="font-size:13px; opacity:.9">Press Space to Start / P to Pause / R to Restart</div>
+  </div>
+
+  <div id="controls">
+    <button id="toggleAI">Toggle AI (Right)</button>
+    <button id="resetBtn">Reset Scores</button>
+  </div>
+
+  <footer>Two-player local or right-side AI. Left: W/S. Right: ↑ / ↓. Chromebook friendly.</footer>
+</div>
+
+<script>
+/*
+  Simple Pong in one file.
+  Controls:
+    - Left paddle: W (up) / S (down)
+    - Right paddle: ArrowUp / ArrowDown
+    - Space to start ball / resume
+    - P to pause
+    - R to restart and reset ball (scores kept)
+    - Reset Scores button clears scores
+    - Toggle AI button toggles right paddle AI
+*/
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const W = canvas.width;
+const H = canvas.height;
+
+// Game objects
+const paddle = {
+  w: 14,
+  h: 110,
+  speed: 7
+};
+
+let left = { x: 30, y: H/2 - paddle.h/2, score: 0 };
+let right = { x: W - 30 - paddle.w, y: H/2 - paddle.h/2, score: 0 };
+
+let ball = {
+  x: W/2,
+  y: H/2,
+  r: 9,
+  speed: 6,
+  vx: 0,
+  vy: 0
+};
+
+let keys = {};
+let running = false;
+let paused = false;
+let aiEnabled = true;
+
+// UI elements
+const scoreLeftEl = document.getElementById('scoreLeft');
+const scoreRightEl = document.createElement('div');
+scoreRightEl.style.fontSize = '28px';
+scoreRightEl.id = 'scoreRight';
+scoreRightEl.textContent = '0';
+document.getElementById('container').appendChild(scoreRightEl);
+
+document.getElementById('toggleAI').addEventListener('click', () => {
+  aiEnabled = !aiEnabled;
+  document.getElementById('toggleAI').textContent = `Toggle AI (Right): ${aiEnabled ? 'ON' : 'OFF'}`;
+});
+document.getElementById('resetBtn').addEventListener('click', () => {
+  left.score = 0; right.score = 0; updateScoreUI();
+});
+
+// Helpers
+function updateScoreUI(){
+  scoreLeftEl.textContent = left.score;
+  scoreRightEl.textContent = right.score;
+}
+
+function resetBall(servingSide=null){
+  ball.x = W/2;
+  ball.y = H/2;
+  // Slight random angle. If servingSide provided ('left'|'right'), send toward that side.
+  const angle = (Math.random() * Math.PI/3) - (Math.PI/6); // -30..+30 degrees
+  const dir = servingSide === 'left' ? -1 : (servingSide === 'right' ? 1 : (Math.random() > 0.5 ? 1 : -1));
+  ball.speed = 6;
+  ball.vx = dir * ball.speed * Math.cos(angle);
+  ball.vy = ball.speed * Math.sin(angle);
+  running = false;
+  paused = false;
+  document.getElementById('status').textContent = 'Press Space to Serve';
+}
+
+function startBall(){
+  if (running) return;
+  running = true;
+  document.getElementById('status').textContent = '';
+}
+
+function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
+// Game loop
+function update(){
+  if (!paused && running){
+    // Move ball
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+
+    // Top/bottom collision
+    if (ball.y - ball.r < 0){
+      ball.y = ball.r;
+      ball.vy = -ball.vy;
+    } else if (ball.y + ball.r > H){
+      ball.y = H - ball.r;
+      ball.vy = -ball.vy;
+    }
+
+    // Left paddle collision
+    if (ball.x - ball.r <= left.x + paddle.w){
+      if (ball.y >= left.y && ball.y <= left.y + paddle.h){
+        // reflect
+        const rel = (ball.y - (left.y + paddle.h/2));
+        const norm = rel / (paddle.h/2);
+        const bounce = norm * (Math.PI/3); // up to 60 degrees
+        const speedUp = 1.05;
+        ball.speed *= speedUp;
+        const dir = 1; // goes right
+        ball.vx = dir * Math.abs(ball.speed * Math.cos(bounce));
+        ball.vy = ball.speed * Math.sin(bounce);
+        ball.x = left.x + paddle.w + ball.r + 0.1;
+      } else {
+        // right scores
+        right.score += 1;
+        updateScoreUI();
+        resetBall('right');
+      }
+    }
+
+    // Right paddle collision
+    if (ball.x + ball.r >= right.x){
+      if (ball.y >= right.y && ball.y <= right.y + paddle.h){
+        const rel = (ball.y - (right.y + paddle.h/2));
+        const norm = rel / (paddle.h/2);
+        const bounce = norm * (Math.PI/3);
+        const speedUp = 1.05;
+        ball.speed *= speedUp;
+        const dir = -1; // goes left
+        ball.vx = dir * Math.abs(ball.speed * Math.cos(bounce));
+        ball.vy = ball.speed * Math.sin(bounce);
+        ball.x = right.x - ball.r - 0.1;
+      } else {
+        left.score += 1;
+        updateScoreUI();
+        resetBall('left');
+      }
+    }
+
+    // Paddle movement by keys
+    if (keys['w'] || keys['W']) left.y -= paddle.speed;
+    if (keys['s'] || keys['S']) left.y += paddle.speed;
+    if (keys['ArrowUp']) right.y -= paddle.speed;
+    if (keys['ArrowDown']) right.y += paddle.speed;
+
+    // AI for right paddle (if enabled)
+    if (aiEnabled){
+      // Simple predictive+ease AI
+      const targetY = ball.y - paddle.h/2 + (ball.vx > 0 ? ball.vy * 6 : 0);
+      // move towards target with max speed
+      if (right.y + paddle.h/2 < targetY - 6) right.y += paddle.speed * 0.95;
+      else if (right.y + paddle.h/2 > targetY + 6) right.y -= paddle.speed * 0.95;
+    }
+
+    // Keep paddles inside
+    left.y = clamp(left.y, 0, H - paddle.h);
+    right.y = clamp(right.y, 0, H - paddle.h);
+  }
+
+  draw();
+  requestAnimationFrame(update);
+}
+
+// Drawing
+function draw(){
+  // clear
+  ctx.clearRect(0,0,W,H);
+
+  // center dashed line
+  ctx.beginPath();
+  ctx.setLineDash([10,14]);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.moveTo(W/2, 10); ctx.lineTo(W/2, H-10);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // paddles
+  roundRect(ctx, left.x, left.y, paddle.w, paddle.h, 6, true, false);
+  roundRect(ctx, right.x, right.y, paddle.w, paddle.h, 6, true, false);
+
+  // ball
+  ctx.beginPath();
+  ctx.fillStyle = '#e6f7ff';
+  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
+  ctx.fill();
+
+  // glow
+  ctx.beginPath();
+  ctx.fillStyle = 'rgba(230,247,255,0.06)';
+  ctx.arc(ball.x, ball.y, ball.r*2.6, 0, Math.PI*2);
+  ctx.fill();
+
+  // scores (we also update DOM)
+  ctx.fillStyle = 'rgba(207,231,255,0.06)';
+  ctx.font = '22px system-ui';
+  ctx.textAlign = 'center';
+}
+
+// utility draw rounded rect
+function roundRect(ctx,x,y,w,h,r,fill,stroke){
+  if (typeof r === 'undefined') r=6;
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+  if (fill){ ctx.fillStyle = '#cfe7ff'; ctx.globalAlpha = 0.08; ctx.fill(); ctx.globalAlpha = 1; }
+  if (stroke){ ctx.stroke(); }
+}
+
+// Input
+window.addEventListener('keydown', (e) => {
+  if (e.key === ' '){
+    e.preventDefault();
+    startBall();
+  } else if (e.key.toLowerCase() === 'p'){
+    paused = !paused;
+    document.getElementById('status').textContent = paused ? 'Paused' : (running ? '' : 'Press Space to Serve');
+  } else if (e.key.toLowerCase() === 'r'){
+    // reset ball but keep scores
+    resetBall();
+  } else {
+    keys[e.key] = true;
+  }
+});
+window.addEventListener('keyup', (e) => {
+  delete keys[e.key];
+});
+
+// Mouse/touch quick control (optional): click top/bottom half to nudge left paddle
+canvas.addEventListener('mousedown', (ev) => {
+  const rect = canvas.getBoundingClientRect();
+  const y = ev.clientY - rect.top;
+  if (y < H/2) left.y -= 30; else left.y += 30;
+});
+canvas.addEventListener('touchstart', (ev) => {
+  const rect = canvas.getBoundingClientRect();
+  const y = ev.touches[0].clientY - rect.top;
+  if (y < H/2) left.y -= 30; else left.y += 30;
+});
+
+// Init
+updateScoreUI();
+resetBall();
+
+// Small responsive logic: scale canvas on high-DPI screens but keep internal resolution same
+function scaleCanvasForDisplay(){
+  const dpr = window.devicePixelRatio || 1;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+scaleCanvasForDisplay();
+
+// Start the animation loop
+requestAnimationFrame(update);
+</script>
+</body>
+</html>
